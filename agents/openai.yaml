@@ -1,0 +1,4 @@
+interface:
+  display_name: "Frontend Production Restore"
+  short_description: "Restore maintainable frontend source from production bundles."
+  default_prompt: "Help me recover a maintainable frontend project from production artifacts."
