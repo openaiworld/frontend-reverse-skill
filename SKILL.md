@@ -1,6 +1,6 @@
 ---
 name: frontend-production-restore
-description: Restore maintainable frontend source from production artifacts. Use when Codex is asked to recover, reconstruct, migrate, or analyze a lost-source frontend project from minified bundles, dist folders, index.html, chunks, source maps, static assets, screenshots, Electron/uTools/Chrome-extension packages, or when the user wants to rebuild an existing production React/Vue/SPA into another target stack such as Vue 3 or React.
+description: Restore maintainable frontend source from production artifacts. Use when recovering, reconstructing, or migrating a lost-source frontend project — including minified bundles, dist folders, source maps, static assets, screenshots, or packaged apps (Electron, uTools, Chrome extensions). Also use when rebuilding an existing production SPA into a new stack (e.g. Vue 3, React).
 ---
 
 # Frontend Production Restore
@@ -9,49 +9,193 @@ description: Restore maintainable frontend source from production artifacts. Use
 
 Recover a maintainable frontend project from production evidence. Do not merely beautify minified JS; rebuild behavior, architecture, assets, and validation from evidence.
 
-## Fast workflow
+---
 
-1. **Clarify target first.** Ask only when needed: preserve original stack, migrate to Vue 3/React, restore full app or one flow, required parity level, available screenshots/assets/runtime package.
-2. **Inventory before reading.** Prefer commands and scripts over pasting bundles. Run:
-   ```bash
-   python3 ${CODEX_HOME:-$HOME/.codex}/skills/frontend-production-restore/scripts/scan_frontend_artifacts.py <artifact-dir> --out /tmp/frontend-restore-scan.md
-   ```
-   Then read the summary, not the entire bundle.
-3. **Take the source-map shortcut when available.** If `.map` files or inline `sourceMappingURL` exist, extract first:
-   ```bash
-   python3 ${CODEX_HOME:-$HOME/.codex}/skills/frontend-production-restore/scripts/extract_sourcemap_sources.py <artifact-dir> --out /tmp/recovered-sources
-   ```
-   Use recovered source as evidence, then clean/rebuild into the requested target stack.
-4. **Choose the branch by artifact type.** Different build tools, frameworks, and platforms need different tactics; read `references/artifact-matrix.md` when the path is not obvious.
-5. **Use evidence order.** Source maps with `sourcesContent` > runtime behavior and screenshots > served assets/network/console > manifests/configs > bundle strings > inferred source shape.
-6. **Apply the engineering gate before coding.** Build a standard frontend project in the user-approved stack; prefer mature libraries/component-library primitives for complex UI and behavior; avoid invented APIs, hardcoding, and large custom hooks/composables.
-7. **Search by guessed keywords.** Infer likely class/function/field/API names from UI text, Chinese/English labels, errors, package clues, and domain concepts; then use `rg`, script output, source maps, and LICENSE files to confirm.
-8. **Debug the original bundle without modifying it.** Serve the original `index.html`, inspect console errors, and add only reversible HTML/runtime mocks. Use `inject_runtime_mock.py` to create a debug copy when browser globals such as `utools`, `preload`, `ipcRenderer`, or extension APIs are missing.
-9. **Restore by vertical slices.** App shell → data load/save → main UI flow → import/export/clipboard/assets → host integration. Avoid rebuilding by webpack module number.
-10. **Create maintainable boundaries.** Use thin `runtime`/`bridge` facades for host APIs, `services/*` for app operations, and `core/*` for reusable pure logic. Keep compatibility shims during refactors.
-11. **Validate continuously.** Prefer low-cost tests for pure transforms, render output, sanitizer/runtime contracts, then typecheck/lint/build and screenshot/manual parity smoke checks.
+## Workflow
 
-## Token-efficiency rules
+### Step 1 · Clarify target
 
-- Never paste large bundles into context. Produce file lists, top strings, dependency clues, and targeted snippets.
-- For Chinese projects, extract Chinese UI strings first; they are high-signal search keys. For English projects, extract quoted UI labels, route names, error messages, and aria/title strings.
-- If screenshots are available, analyze layout, colors, icons, and visible text; use visible text and icon semantics as search terms.
-- Prefer `package.json`, `manifest.json`, `plugin.json`, `LICENSE`, sourcemaps, and chunk names before deep deminification.
+Ask only when genuinely ambiguous:
+- Preserve original stack, or migrate to a new one (Vue 3 / React / other)?
+- Full app restore, or one specific flow?
+- Required parity level (pixel-perfect, functional, or behavioral)?
+- Available evidence: screenshots, network logs, runtime package, source maps?
 
-## Target-stack and library decision
+> **Engineering gate (decide before coding):** Choose a mature, user-approved stack and component library. Avoid hand-rolling complex UI, state, forms, tables, charts, drag-drop, or i18n without explicit reason. Commit to the stack before implementing.
 
-- If the user wants parity, keep the closest stack unless there is a strong maintainability reason to modernize.
-- If the user wants migration, treat production artifacts as behavior/spec, not source shape. Rebuild in the target stack while preserving assets, routes, data contracts, and runtime integration.
-- Use user-approved libraries and component systems whenever they fit; do not hand-roll complex UI, hooks, composables, state, forms, tables, editors, charts, drag/drop, or i18n without a reason.
-- If uncertain, restore one end-to-end flow first before committing to a full architecture.
+---
+
+### Step 2 · Inventory artifacts (low-token first)
+
+Never paste large bundles into context. Produce file lists, string extracts, and targeted snippets.
+
+```bash
+python3 ${CODEX_HOME:-$HOME/.codex}/skills/frontend-production-restore/scripts/scan_frontend_artifacts.py \
+  <artifact-dir> --out /tmp/frontend-restore-scan.md
+```
+
+**If the script is unavailable**, fall back to manual inventory:
+```bash
+find <artifact-dir> -type f | sort
+# Then inspect: package.json, manifest.json, plugin.json, LICENSE, chunk filenames
+```
+
+Read the summary output, not the raw bundle.
+
+---
+
+### Step 3 · Take the source-map shortcut (when available)
+
+If `.map` files or inline `sourceMappingURL` exist, extract first:
+
+```bash
+python3 ${CODEX_HOME:-$HOME/.codex}/skills/frontend-production-restore/scripts/extract_sourcemap_sources.py \
+  <artifact-dir> --out /tmp/recovered-sources
+```
+
+**If the script is unavailable**, manually locate `sourceMappingURL` at the end of JS files and decode the base64 or fetch the `.map` file, then parse `sourcesContent` from the JSON.
+
+Use recovered source as behavioral evidence, then clean and rebuild in the target stack.
+
+> See `references/source-map-recovery.md` for detailed map recovery tactics.
+
+---
+
+### Step 4 · Choose branch by artifact type
+
+| Artifact type | Primary tactic |
+|---|---|
+| Source maps with `sourcesContent` | Extract → clean → rebuild |
+| Minified bundle, no maps | String/label extraction → infer shape |
+| Screenshots + bundle | Visual layout analysis + label search |
+| Packaged app (Electron/uTools/extension) | Unpack → inspect manifest → mock host APIs |
+
+> See `references/artifact-matrix.md` for full branching logic.
+
+---
+
+### Step 5 · Apply evidence in priority order
+
+When multiple evidence sources conflict, apply this order (highest wins):
+
+1. Source maps with `sourcesContent`
+2. Runtime behavior and screenshots
+3. Served assets, network logs, console output
+4. Manifests and config files (`package.json`, `manifest.json`)
+5. Bundle strings (UI labels, route names, error messages, aria/title attrs)
+6. Inferred source shape from bundle structure
+
+**Conflict resolution:** If source map and screenshot disagree, trust the screenshot for layout/visual details and the source map for logic/data flow.
+
+---
+
+### Step 6 · Extract high-signal strings
+
+Before deminifying, extract UI strings — they are the best search keys.
+
+- **Chinese projects:** Extract Chinese UI strings first (`rg '[\u4e00-\u9fff]'`)
+- **English projects:** Extract quoted labels, route names, error messages, aria/title strings
+
+Use these as `rg` keywords to locate components, services, and data shapes in the bundle.
+
+---
+
+### Step 7 · Debug the original bundle (without modifying it)
+
+Serve the original `index.html`, inspect console errors, and add only reversible mocks.
+
+```bash
+python3 ${CODEX_HOME:-$HOME/.codex}/skills/frontend-production-restore/scripts/inject_runtime_mock.py \
+  <index.html> --out /tmp/debug-index.html
+```
+
+**If the script is unavailable**, manually inject a `<script>` block before the bundle that stubs missing globals (`window.utools`, `window.preload`, `ipcRenderer`, extension APIs) with safe no-op implementations.
+
+> See `references/browser-runtime-mock.md` for mock patterns.
+
+---
+
+### Step 8 · Restore by vertical slices
+
+Implement in this order to validate incrementally:
+
+1. App shell (layout, routing, navigation)
+2. Data load / save (API calls, local storage, host bridge)
+3. Main UI flow (primary user-facing features)
+4. Import / export / clipboard / assets
+5. Host integration (Electron IPC, uTools APIs, extension messaging)
+
+Avoid rebuilding by webpack chunk number — it produces orphaned logic.
+
+---
+
+### Step 9 · Maintain clean boundaries
+
+| Layer | Purpose |
+|---|---|
+| `runtime/` or `bridge/` | Thin facade for host APIs (Electron, uTools, extension) |
+| `services/` | App-level operations (data fetch, persistence, transform) |
+| `core/` | Reusable pure logic (utils, validators, formatters) |
+
+Keep compatibility shims in place during refactors; remove after validation.
+
+---
+
+### Step 10 · Validate continuously
+
+- **Low-cost first:** Unit tests for pure transforms and sanitizers; render output assertions
+- **Mid-cost:** Typecheck (`tsc --noEmit`), lint, build
+- **High-cost:** Screenshot comparison and manual parity smoke checks
+
+---
+
+## Failure paths and fallbacks
+
+| Situation | Action |
+|---|---|
+| Source maps are corrupt or missing `sourcesContent` | Fall back to Step 5 evidence order; skip map extraction |
+| Bundle is heavily obfuscated (mangled names, dead code injected) | Extract strings and screenshots only; rebuild from behavior spec |
+| Screenshots insufficient (no UI evidence) | Ask user for one additional artifact before proceeding |
+| Host API (uTools/Electron) calls fail at runtime | Use `inject_runtime_mock.py` or manual stubs; document assumptions |
+| Target library unavailable or version conflict | Surface the conflict to user before implementing workaround |
+
+---
+
+## Multilingual project hints
+
+- Chinese labels and route names are high-density search keys — extract them before any deminification attempt.
+- English projects: prioritize aria labels, `data-testid`, route paths, and error message strings.
+- For mixed-language projects (e.g. Chinese UI + English API keys), extract both layers separately.
+
+---
+
+## Example: successful restore
+
+**Input:** `dist/` folder with `index.html`, `main.abc123.js`, `vendor.xyz.js`, two `.map` files, and three screenshots.
+
+**Steps taken:**
+1. Clarified: migrate to Vue 3, functional parity required.
+2. Ran `scan_frontend_artifacts.py` → identified React 17 + Ant Design, 4 routes, REST API base URL.
+3. Ran `extract_sourcemap_sources.py` → recovered 23 source files with full `sourcesContent`.
+4. Extracted Chinese UI strings → confirmed 3 main views: 数据录入, 报表查看, 系统设置.
+5. Built Vue 3 + Element Plus scaffold; restored slices in order: shell → data → main flow.
+6. Validated with `tsc`, `eslint`, and manual screenshot comparison.
+
+**Output:** Maintainable Vue 3 project with `runtime/`, `services/`, `core/` separation; all 3 views functional; host API calls stubbed with documented contracts.
+
+---
 
 ## Resources
 
-- Read `references/restore-workflow.md` for the detailed checklist and deliverables.
-- Read `references/source-map-recovery.md` when sourcemaps exist or `sourceMappingURL` appears in bundles.
-- Read `references/artifact-matrix.md` to branch by source-map quality, build tool, framework, and platform.
-- Read `references/engineering-standards.md` before implementing restored project code or reviewing architecture.
-- Read `references/browser-runtime-mock.md` when the original bundle needs browser/Electron/uTools/extension mocks.
-- Use `scripts/scan_frontend_artifacts.py` for low-token artifact inventory and keyword extraction.
-- Use `scripts/extract_sourcemap_sources.py` to recover source files from `.map` files with `sourcesContent`.
-- Use `scripts/inject_runtime_mock.py` to create a reversible debug HTML copy with safe runtime mocks.
+| Resource | When to read |
+|---|---|
+| `references/restore-workflow.md` | Full checklist and deliverable definitions |
+| `references/source-map-recovery.md` | Source map decoding and repair |
+| `references/artifact-matrix.md` | Branch by build tool, framework, platform |
+| `references/engineering-standards.md` | Before implementing any restored code |
+| `references/browser-runtime-mock.md` | Mocking Electron / uTools / extension globals |
+| `scripts/scan_frontend_artifacts.py` | Low-token artifact inventory |
+| `scripts/extract_sourcemap_sources.py` | Recover sources from `.map` files |
+| `scripts/inject_runtime_mock.py` | Reversible debug HTML with runtime stubs |
+
+> **If any reference file is missing**, the core workflow above is self-contained and sufficient to proceed. Treat missing references as optional depth, not blockers.
